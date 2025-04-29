@@ -92,7 +92,7 @@ async fn main() {
         .layer(cors);
 
     // Define our address
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3300));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3301));
     println!("Server running on http://{}", addr);
 
     // Start the server

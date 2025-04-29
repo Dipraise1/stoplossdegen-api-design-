@@ -35,7 +35,7 @@ cargo build
 cargo run
 ```
 
-The server will start on http://127.0.0.1:3300
+The server will start on http://127.0.0.1:3301
 
 ## API Endpoints
 
