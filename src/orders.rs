@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use std::sync::Arc;
 use tokio::time;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 use rand;
 
@@ -27,8 +27,15 @@ pub async fn create_limit_order(
     // In a real app, this would be tied to the user who created the order
     let wallet = wallets.values().next().unwrap();
     
-    // Check token balance if this is a sell order
-    if order_request.order_type == OrderType::Sell {
+    // Estimate transaction fees
+    let estimated_fee = crate::wallet::estimate_transaction_fees().await
+        .unwrap_or(0.01); // Default to 0.01 SOL if estimation fails
+    
+    info!("Estimated transaction fee for limit order: {} SOL", estimated_fee);
+    
+    // Check token balance based on order type
+    if order_request.order_type == OrderType::Sell || order_request.order_type == OrderType::StopLoss {
+        // For sell and stop loss orders, check if the wallet has enough of the source token
         let has_balance = crate::wallet::has_sufficient_balance(
             wallet, 
             &order_request.source_token, 
@@ -36,18 +43,74 @@ pub async fn create_limit_order(
         ).await?;
         
         if !has_balance {
-            return Err(anyhow!("Insufficient balance to create sell order. Please add funds."));
+            let order_type_str = if order_request.order_type == OrderType::Sell { "sell" } else { "stop loss" };
+            return Err(anyhow!("Insufficient balance to create {} order. Please add funds.", order_type_str));
+        }
+        
+        // For stop loss orders, validate that the price target makes sense
+        if order_request.order_type == OrderType::StopLoss {
+            // Get current price of the target token
+            let current_price = price::get_token_price(&app_state, &order_request.target_token)
+                .map_err(|e| anyhow!("Failed to get price for target token: {}", e))?;
+            
+            // For stop loss, the price target should be below the current price
+            if order_request.price_target >= current_price {
+                return Err(anyhow!(
+                    "Invalid stop loss price: {} is not below the current price {}. Stop loss should be set below current price.",
+                    order_request.price_target,
+                    current_price
+                ));
+            }
+            
+            info!(
+                "Creating stop loss order with target price {} (current price: {})",
+                order_request.price_target, current_price
+            );
         }
     } else {
-        // For buy orders, we need to make sure they have some SOL for transaction fees
+        // For buy orders, we need to calculate the estimated cost in the source token
+        // Get current price of the target token
+        let target_price = price::get_token_price(&app_state, &order_request.target_token)
+            .map_err(|e| anyhow!("Failed to get price for target token: {}", e))?;
+        
+        // Get current price of the source token
+        let source_price = price::get_token_price(&app_state, &order_request.source_token)
+            .map_err(|e| anyhow!("Failed to get price for source token: {}", e))?;
+        
+        // Calculate estimated amount needed in source token
+        let price_ratio = if source_price > 0.0 { target_price / source_price } else { 0.0 };
+        let estimated_source_amount = order_request.amount * price_ratio * (1.0 + order_request.slippage.unwrap_or(0.5) / 100.0);
+        
+        info!(
+            "Buy order calculation: Target price: ${}, Source price: ${}, Price ratio: {}, Estimated source amount needed: {}",
+            target_price, source_price, price_ratio, estimated_source_amount
+        );
+        
+        // Check if the wallet has enough of the source token for the estimated cost
+        let has_enough_source = crate::wallet::has_sufficient_balance(
+            wallet,
+            &order_request.source_token,
+            estimated_source_amount
+        ).await?;
+        
+        if !has_enough_source {
+            return Err(anyhow!(
+                "Insufficient balance of {} to create buy order. Estimated amount needed: {} (based on current price: ${})",
+                crate::wallet::KnownTokens::get_symbol(&order_request.source_token),
+                estimated_source_amount,
+                source_price
+            ));
+        }
+        
+        // Also ensure they have some SOL for transaction fees
         let has_sol = crate::wallet::has_sufficient_balance(
             wallet,
             "So11111111111111111111111111111111111111112",
-            0.01 // Minimum SOL needed for transaction fees
+            estimated_fee
         ).await?;
         
         if !has_sol {
-            return Err(anyhow!("Insufficient SOL balance for transaction fees."));
+            return Err(anyhow!("Insufficient SOL balance for transaction fees. Need at least {} SOL.", estimated_fee));
         }
     }
     
@@ -119,6 +182,10 @@ fn should_execute_order(order: &LimitOrder, current_price: f64) -> bool {
             // Sell when the price is above or equal to the target price
             current_price >= order.price_target
         }
+        OrderType::StopLoss => {
+            // Stop loss triggers when the price drops to or below the target price
+            current_price <= order.price_target
+        }
     }
 }
 
@@ -134,9 +201,19 @@ async fn execute_order(app_state: Arc<AppState>, order: LimitOrder) -> Result<Li
     // In a real app, this would be tied to the user who created the order
     let wallet = wallets.values().next().unwrap();
     
-    // Double-check balance before executing
-    if order.order_type == OrderType::Sell {
-        // For sell orders, check if the wallet still has enough of the source token
+    // Estimate transaction fees
+    let estimated_fee = crate::wallet::estimate_transaction_fees().await
+        .unwrap_or(0.01); // Default to 0.01 SOL if estimation fails
+    
+    info!("Estimated transaction fee for order execution: {} SOL", estimated_fee);
+    
+    // Get current prices for calculation
+    let target_price = price::get_token_price(&app_state, &order.target_token)
+        .map_err(|e| anyhow!("Failed to get price for target token: {}", e))?;
+    
+    // Double-check balance before executing based on order type
+    if order.order_type == OrderType::Sell || order.order_type == OrderType::StopLoss {
+        // For sell and stop loss orders, check if the wallet still has enough of the source token
         let has_balance = crate::wallet::has_sufficient_balance(
             wallet, 
             &order.source_token, 
@@ -151,12 +228,79 @@ async fn execute_order(app_state: Arc<AppState>, order: LimitOrder) -> Result<Li
                 updated_order.updated_at = Utc::now();
                 orders.insert(order.id.clone(), updated_order.clone());
                 
-                error!("Order {} failed: Insufficient balance of {} to execute", 
-                       order.id, crate::wallet::KnownTokens::get_symbol(&order.source_token));
+                let order_type_str = if order.order_type == OrderType::Sell { "Sell" } else { "Stop loss" };
+                error!("{} order {} failed: Insufficient balance of {} to execute", 
+                       order_type_str, order.id, crate::wallet::KnownTokens::get_symbol(&order.source_token));
                 
                 return Ok(updated_order);
             }
             return Err(anyhow!("Insufficient balance to execute sell order"));
+        }
+    } else {
+        // For buy orders, we need to calculate the estimated cost in the source token
+        // Get current price of the source token
+        let source_price = price::get_token_price(&app_state, &order.source_token)
+            .map_err(|e| anyhow!("Failed to get price for source token: {}", e))?;
+        
+        // Calculate estimated amount needed in source token using current prices
+        let price_ratio = if source_price > 0.0 { target_price / source_price } else { 0.0 };
+        let estimated_source_amount = order.amount * price_ratio * (1.0 + order.slippage / 100.0);
+        
+        info!(
+            "Buy order execution calculation: Target price: ${}, Source price: ${}, Price ratio: {}, Estimated source amount needed: {}",
+            target_price, source_price, price_ratio, estimated_source_amount
+        );
+        
+        // Check if the wallet has enough of the source token for the estimated cost
+        let has_enough_source = crate::wallet::has_sufficient_balance(
+            wallet,
+            &order.source_token,
+            estimated_source_amount
+        ).await?;
+        
+        if !has_enough_source {
+            // Mark the order as failed due to insufficient balance
+            let mut orders = app_state.limit_orders.lock().unwrap();
+            if let Some(mut updated_order) = orders.get(&order.id).cloned() {
+                updated_order.status = OrderStatus::Failed;
+                updated_order.updated_at = Utc::now();
+                orders.insert(order.id.clone(), updated_order.clone());
+                
+                let order_type_str = if order.order_type == OrderType::Buy { "Buy" } else { "Stop loss" };
+                error!(
+                    "{} order {} failed: Insufficient balance of {} to execute. Needed: {}, Current price: ${}",
+                    order_type_str, order.id, 
+                    crate::wallet::KnownTokens::get_symbol(&order.source_token),
+                    estimated_source_amount,
+                    source_price
+                );
+                
+                return Ok(updated_order);
+            }
+            return Err(anyhow!("Insufficient balance to execute buy order"));
+        }
+        
+        // Also ensure they have some SOL for transaction fees
+        let has_sol = crate::wallet::has_sufficient_balance(
+            wallet,
+            "So11111111111111111111111111111111111111112",
+            estimated_fee
+        ).await?;
+        
+        if !has_sol {
+            // Mark the order as failed due to insufficient SOL
+            let mut orders = app_state.limit_orders.lock().unwrap();
+            if let Some(mut updated_order) = orders.get(&order.id).cloned() {
+                updated_order.status = OrderStatus::Failed;
+                updated_order.updated_at = Utc::now();
+                orders.insert(order.id.clone(), updated_order.clone());
+                
+                error!("Order {} failed: Insufficient SOL for transaction fees. Need at least {} SOL", 
+                       order.id, estimated_fee);
+                
+                return Ok(updated_order);
+            }
+            return Err(anyhow!("Insufficient SOL for transaction fees"));
         }
     }
     
@@ -277,27 +421,42 @@ pub async fn monitor_limit_orders(app_state: Arc<AppState>) {
                 Ok(current_price) => {
                     let should_execute = should_execute_order(&order, current_price);
                     
-                    // Add debug logging
-                    if order.order_type == OrderType::Buy {
-                        if current_price <= order.price_target {
-                            info!("Buy order {} triggered - current price {} <= target {}", 
-                                   order.id, current_price, order.price_target);
-                        } else {
-                            // Only log occasionally to avoid spamming the logs
-                            if rand::random::<u8>() < 5 { // ~2% chance
-                                info!("Buy order {} waiting - current price {} > target {}", 
-                                      order.id, current_price, order.price_target);
+                    // Add debug logging based on order type
+                    match order.order_type {
+                        OrderType::Buy => {
+                            if current_price <= order.price_target {
+                                info!("Buy order {} triggered - current price {} <= target {}", 
+                                       order.id, current_price, order.price_target);
+                            } else {
+                                // Only log occasionally to avoid spamming the logs
+                                if rand::random::<u8>() < 5 { // ~2% chance
+                                    info!("Buy order {} waiting - current price {} > target {}", 
+                                          order.id, current_price, order.price_target);
+                                }
                             }
                         }
-                    } else {
-                        if current_price >= order.price_target {
-                            info!("Sell order {} triggered - current price {} >= target {}", 
-                                   order.id, current_price, order.price_target);
-                        } else {
-                            // Only log occasionally to avoid spamming the logs
-                            if rand::random::<u8>() < 5 { // ~2% chance
-                                info!("Sell order {} waiting - current price {} < target {}", 
-                                      order.id, current_price, order.price_target);
+                        OrderType::Sell => {
+                            if current_price >= order.price_target {
+                                info!("Sell order {} triggered - current price {} >= target {}", 
+                                       order.id, current_price, order.price_target);
+                            } else {
+                                // Only log occasionally to avoid spamming the logs
+                                if rand::random::<u8>() < 5 { // ~2% chance
+                                    info!("Sell order {} waiting - current price {} < target {}", 
+                                          order.id, current_price, order.price_target);
+                                }
+                            }
+                        }
+                        OrderType::StopLoss => {
+                            if current_price <= order.price_target {
+                                info!("Stop loss order {} triggered - current price {} <= target {}", 
+                                       order.id, current_price, order.price_target);
+                            } else {
+                                // Only log occasionally to avoid spamming the logs
+                                if rand::random::<u8>() < 5 { // ~2% chance
+                                    info!("Stop loss order {} waiting - current price {} > target {}", 
+                                          order.id, current_price, order.price_target);
+                                }
                             }
                         }
                     }
@@ -318,4 +477,9 @@ pub async fn monitor_limit_orders(app_state: Arc<AppState>) {
             }
         }
     }
+}
+
+// Public version of should_execute_order for testing purposes
+pub fn should_execute_order_test(order: &LimitOrder, current_price: f64) -> bool {
+    should_execute_order(order, current_price)
 } 

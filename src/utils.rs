@@ -1,6 +1,22 @@
 use anyhow::{anyhow, Result};
-use axum::Json;
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde_json::json;
+
+// Custom API response type that implements IntoResponse
+pub struct ApiResponse {
+    status: StatusCode,
+    body: Json<serde_json::Value>,
+}
+
+impl IntoResponse for ApiResponse {
+    fn into_response(self) -> Response {
+        (self.status, self.body).into_response()
+    }
+}
 
 // Convert lamports to SOL
 pub fn lamports_to_sol(lamports: u64) -> f64 {
@@ -24,9 +40,10 @@ pub fn ui_amount_to_token_amount(ui_amount: f64, decimals: u8) -> u64 {
 
 // Helper to build a consistent API response
 pub fn build_api_response<T: serde::Serialize>(
+    status: StatusCode,
     data: Option<T>,
     error: Option<String>,
-) -> Json<serde_json::Value> {
+) -> ApiResponse {
     let success = error.is_none();
     
     let response = json!({
@@ -35,17 +52,20 @@ pub fn build_api_response<T: serde::Serialize>(
         "error": error,
     });
     
-    Json(response)
+    ApiResponse {
+        status,
+        body: Json(response)
+    }
 }
 
 // Helper to build error responses
-pub fn build_error_response(error: &str) -> Json<serde_json::Value> {
-    build_api_response::<()>(None, Some(error.to_string()))
+pub fn build_error_response(status: StatusCode, error: &str) -> ApiResponse {
+    build_api_response::<()>(status, None, Some(error.to_string()))
 }
 
 // Helper to build success responses
-pub fn build_success_response<T: serde::Serialize>(data: T) -> Json<serde_json::Value> {
-    build_api_response(Some(data), None)
+pub fn build_success_response<T: serde::Serialize>(data: T) -> ApiResponse {
+    build_api_response(StatusCode::OK, Some(data), None)
 }
 
 // Validate amount is positive

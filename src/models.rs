@@ -39,8 +39,6 @@ pub struct TokenBalance {
     pub mint: String,
     pub symbol: String,
     pub amount: f64,
-    pub decimals: u8,
-    pub ui_amount: f64,
 }
 
 // Token Price for the API response
@@ -77,6 +75,7 @@ pub struct SwapResponse {
 pub enum OrderType {
     Buy,
     Sell,
+    StopLoss,
 }
 
 // Add Display implementation for OrderType
@@ -85,6 +84,7 @@ impl fmt::Display for OrderType {
         match self {
             OrderType::Buy => write!(f, "Buy"),
             OrderType::Sell => write!(f, "Sell"),
+            OrderType::StopLoss => write!(f, "Stop Loss"),
         }
     }
 }

@@ -4,7 +4,7 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
-use tracing::{error, info};
+use tracing::info;
 use solana_sdk::{
     transaction::Transaction,
     commitment_config::CommitmentConfig,
@@ -121,7 +121,24 @@ pub async fn execute_swap(
         CommitmentConfig::confirmed(),
     );
     
-    // Check if the wallet has sufficient balance
+    // Estimate transaction fees
+    let estimated_fee = crate::wallet::estimate_transaction_fees().await
+        .unwrap_or(0.01); // Default to 0.01 SOL if estimation fails
+    
+    info!("Estimated transaction fee for swap: {} SOL", estimated_fee);
+    
+    // Check if the wallet has sufficient SOL for transaction fees
+    let has_sol = crate::wallet::has_sufficient_balance(
+        wallet,
+        "So11111111111111111111111111111111111111112",
+        estimated_fee
+    ).await?;
+    
+    if !has_sol {
+        return Err(anyhow!("Insufficient SOL balance for transaction fees. Need at least {} SOL.", estimated_fee));
+    }
+    
+    // Check if the wallet has sufficient balance of the source token
     let has_balance = crate::wallet::has_sufficient_balance(
         wallet, 
         &swap_request.source_token,
@@ -218,7 +235,7 @@ pub async fn execute_swap(
         transaction_signature: signature.to_string(),
         source_amount,
         target_amount,
-        fee: 0.0, // Jupiter fee is included in the swap amounts
+        fee: estimated_fee, // Include the estimated transaction fee
         success: true,
         timestamp: Utc::now(),
     })

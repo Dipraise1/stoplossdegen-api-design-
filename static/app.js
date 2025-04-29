@@ -48,6 +48,14 @@ async function initApp() {
 
     // Populate token selects
     populateTokenSelects();
+    
+    // Set initial form labels
+    const orderTypeSelect = document.getElementById('order-type');
+    if (orderTypeSelect) {
+        // Trigger the change event to set initial label text
+        const event = new Event('change');
+        orderTypeSelect.dispatchEvent(event);
+    }
 }
 
 // Generate a new wallet
@@ -172,7 +180,7 @@ async function fetchBalances() {
                 html += `
                     <div class="token-balance">
                         <div class="token-symbol">${balance.symbol}</div>
-                        <div class="token-amount">${balance.ui_amount.toFixed(6)}</div>
+                        <div class="token-amount">${balance.amount.toFixed(6)}</div>
                     </div>
                 `;
             });
@@ -381,6 +389,27 @@ function populateTokenSelects() {
     // Set default values (if needed)
     sourceTokenSelect.value = knownTokens[0].mint; // SOL
     targetTokenSelect.value = knownTokens[1].mint; // USDC
+    
+    // Add Stop Loss option to order type dropdown
+    const orderTypeSelect = document.getElementById('order-type');
+    if (orderTypeSelect) {
+        // Check if Stop Loss option already exists
+        let hasStopLoss = false;
+        for (let i = 0; i < orderTypeSelect.options.length; i++) {
+            if (orderTypeSelect.options[i].value === 'StopLoss') {
+                hasStopLoss = true;
+                break;
+            }
+        }
+        
+        // Add StopLoss option if it doesn't exist
+        if (!hasStopLoss) {
+            const stopLossOption = document.createElement('option');
+            stopLossOption.value = 'StopLoss';
+            stopLossOption.textContent = 'Stop Loss';
+            orderTypeSelect.appendChild(stopLossOption);
+        }
+    }
 }
 
 // Helper: Get token symbol from mint address
@@ -418,4 +447,30 @@ limitOrderForm.addEventListener('submit', function(event) {
     event.preventDefault();
     const formData = new FormData(limitOrderForm);
     createLimitOrder(formData);
+});
+
+// Event listener for order type change
+document.getElementById('order-type').addEventListener('change', function(event) {
+    const orderType = event.target.value;
+    const priceTargetLabel = document.querySelector('label[for="price-target"]');
+    const priceTargetHelp = document.getElementById('price-target-help');
+    
+    // Create help text element if it doesn't exist
+    if (!priceTargetHelp) {
+        const helpElement = document.createElement('div');
+        helpElement.id = 'price-target-help';
+        helpElement.className = 'form-text';
+        document.querySelector('label[for="price-target"]').parentNode.appendChild(helpElement);
+    }
+    
+    if (orderType === 'Buy') {
+        priceTargetLabel.textContent = 'Price Target (USD) - Buy when price drops to this value';
+        document.getElementById('price-target-help').textContent = 'Order will execute when the price drops to or below this value';
+    } else if (orderType === 'Sell') {
+        priceTargetLabel.textContent = 'Price Target (USD) - Sell when price rises to this value';
+        document.getElementById('price-target-help').textContent = 'Order will execute when the price rises to or above this value';
+    } else if (orderType === 'StopLoss') {
+        priceTargetLabel.textContent = 'Stop Loss Price (USD) - Sell when price drops to this value';
+        document.getElementById('price-target-help').textContent = 'Order will execute when the price drops to or below this value to prevent further losses';
+    }
 }); 
