@@ -1,0 +1,113 @@
+/* Custom styles for the Solana Limit Order DEX */
+
+body {
+    background-color: #f8f9fa;
+    padding-bottom: 2rem;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    background-color: #f1f8ff;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.75rem 1rem;
+}
+
+.table th {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* Token balance formatting */
+.token-balance {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #eee;
+    padding: 0.5rem 0;
+}
+
+.token-balance:last-child {
+    border-bottom: none;
+}
+
+.token-symbol {
+    font-weight: 600;
+}
+
+.token-amount {
+    text-align: right;
+}
+
+/* Token price formatting */
+.token-price {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #eee;
+    padding: 0.5rem 0;
+}
+
+.token-price:last-child {
+    border-bottom: none;
+}
+
+/* Order status styling */
+.status-active {
+    color: #198754;
+    font-weight: 600;
+}
+
+.status-completed {
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+.status-cancelled {
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.status-failed {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Wallet pubkey truncation */
+.pubkey-truncate {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+/* Action buttons in tables */
+.btn-action {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    margin-right: 0.25rem;
+}
+
+/* Loading spinner */
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Token select dropdown */
+.token-option {
+    display: flex;
+    align-items: center;
+}
+
+.token-option-symbol {
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+.token-option-name {
+    font-size: 0.8rem;
+    color: #6c757d;
+} 

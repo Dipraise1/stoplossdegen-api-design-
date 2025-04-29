@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  solana-limit-order-dex:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+      - PORT=3000
+      - HOST=0.0.0.0
+      - RUST_LOG=info
+    volumes:
+      - ./static:/app/static
+    restart: unless-stopped 
