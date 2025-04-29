@@ -1,7 +1,6 @@
-use crate::models::{AppState, LimitOrder, LimitOrderRequest, OrderStatus, OrderType};
+use crate::models::{AppState, LimitOrderRequest, OrderStatus, OrderType};
 use crate::orders;
 use crate::price;
-use chrono::Utc;
 use std::sync::Arc;
 use anyhow::Result;
 

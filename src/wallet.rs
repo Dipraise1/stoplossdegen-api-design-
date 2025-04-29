@@ -1,7 +1,6 @@
 use crate::models::{TokenBalance, Wallet};
 use anyhow::{anyhow, Result};
 use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_request::TokenAccountsFilter;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -9,7 +8,6 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address;
 use std::time::Duration;
 use tracing::{error, info};
-use std::str::FromStr;
 
 // Constants
 const SOLANA_MAINNET_URL: &str = "https://api.mainnet-beta.solana.com";
