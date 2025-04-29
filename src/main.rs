@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
+use std::path::PathBuf;
 
 // Our application state
 #[derive(Clone)]
@@ -82,6 +84,10 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Get the static directory path
+    let static_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
+    println!("Serving static files from: {}", static_dir.display());
+
     // Build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
@@ -89,7 +95,9 @@ async fn main() {
         .route("/decrement", post(decrement))
         .route("/counter", get(get_counter))
         .layer(Extension(app_state))
-        .layer(cors);
+        .layer(cors)
+        // Serve static files from the static directory
+        .nest_service("/", ServeDir::new(static_dir));
 
     // Define our address
     let addr = SocketAddr::from(([127, 0, 0, 1], 3301));
