@@ -3,7 +3,7 @@ const API_URL = window.location.origin;
 
 // DOM elements
 const generateWalletBtn = document.getElementById('generate-wallet-btn');
-const importWalletBtn = document.getElementById('import-wallet-btn');
+const importWalletBtn = document.getElementById('import-wallet-submit');
 const refreshBalancesBtn = document.getElementById('refresh-balances-btn');
 const refreshPricesBtn = document.getElementById('refresh-prices-btn');
 const refreshOrdersBtn = document.getElementById('refresh-orders-btn');
@@ -16,6 +16,9 @@ const tokenPricesDiv = document.getElementById('token-prices');
 const ordersTableBody = document.getElementById('orders-table-body');
 const noWalletAlert = document.getElementById('no-wallet-alert');
 const walletDetails = document.getElementById('wallet-details');
+const orderTypeSelect = document.getElementById('order-type');
+const amountLabel = document.getElementById('amount-label');
+const priceTargetLabel = document.getElementById('price-target-label');
 
 // Known token data
 const knownTokens = [
@@ -29,6 +32,34 @@ const knownTokens = [
 const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
 const walletGeneratedModal = new bootstrap.Modal(document.getElementById('walletGeneratedModal'));
 const importWalletModal = new bootstrap.Modal(document.getElementById('importWalletModal'));
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', initApp);
+generateWalletBtn.addEventListener('click', generateWallet);
+importWalletBtn.addEventListener('click', importWallet);
+refreshBalancesBtn.addEventListener('click', fetchBalances);
+refreshPricesBtn.addEventListener('click', fetchPrices);
+refreshOrdersBtn.addEventListener('click', fetchOrders);
+limitOrderForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    createLimitOrder(new FormData(limitOrderForm));
+});
+
+// Update labels based on order type
+orderTypeSelect.addEventListener('change', () => {
+    const orderType = orderTypeSelect.value;
+    
+    if (orderType === 'buy') {
+        amountLabel.textContent = 'Amount to Spend';
+        priceTargetLabel.textContent = 'Buy when price is at or below';
+    } else if (orderType === 'sell') {
+        amountLabel.textContent = 'Amount to Sell';
+        priceTargetLabel.textContent = 'Sell when price is at or above';
+    } else if (orderType === 'stop_loss') {
+        amountLabel.textContent = 'Amount to Sell';
+        priceTargetLabel.textContent = 'Sell when price drops to';
+    }
+});
 
 // Initialize the app
 async function initApp() {
@@ -50,7 +81,6 @@ async function initApp() {
     populateTokenSelects();
     
     // Set initial form labels
-    const orderTypeSelect = document.getElementById('order-type');
     if (orderTypeSelect) {
         // Trigger the change event to set initial label text
         const event = new Event('change');
@@ -63,10 +93,17 @@ async function generateWallet() {
     showLoading('Generating new wallet...');
     
     try {
-        const response = await axios.post(`${API_URL}/generate_wallet`);
+        const response = await fetch(`${API_URL}/generate_wallet`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         
-        if (response.data.success) {
-            const { pubkey, mnemonic } = response.data.data;
+        const data = await response.json();
+        
+        if (data.success) {
+            const { pubkey, mnemonic } = data.data;
             
             // Store the pubkey in localStorage
             localStorage.setItem('walletPubkey', pubkey);
@@ -88,7 +125,7 @@ async function generateWallet() {
                 fetchOrders()
             ]);
         } else {
-            showError('Failed to generate wallet: ' + response.data.error);
+            showError('Failed to generate wallet: ' + data.error);
         }
     } catch (error) {
         showError('Error generating wallet: ' + error.message);
@@ -121,10 +158,18 @@ async function importWallet() {
     showLoading('Importing wallet...');
     
     try {
-        const response = await axios.post(`${API_URL}/import_wallet`, requestData);
+        const response = await fetch(`${API_URL}/import_wallet`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
         
-        if (response.data.success) {
-            const { pubkey } = response.data.data;
+        const data = await response.json();
+        
+        if (data.success) {
+            const { pubkey } = data.data;
             
             // Store the pubkey in localStorage
             localStorage.setItem('walletPubkey', pubkey);
@@ -145,7 +190,7 @@ async function importWallet() {
                 fetchOrders()
             ]);
         } else {
-            showError('Failed to import wallet: ' + response.data.error);
+            showError('Failed to import wallet: ' + data.error);
         }
     } catch (error) {
         showError('Error importing wallet: ' + error.message);
@@ -164,10 +209,11 @@ async function fetchBalances() {
     tokenBalancesDiv.innerHTML = '<p>Loading balances...</p>';
     
     try {
-        const response = await axios.get(`${API_URL}/get_balances`);
+        const response = await fetch(`${API_URL}/get_balances`);
+        const data = await response.json();
         
-        if (response.data.success) {
-            const balances = response.data.data;
+        if (data.success) {
+            const balances = data.data;
             
             if (balances.length === 0) {
                 tokenBalancesDiv.innerHTML = '<p>No token balances found</p>';
@@ -180,14 +226,14 @@ async function fetchBalances() {
                 html += `
                     <div class="token-balance">
                         <div class="token-symbol">${balance.symbol}</div>
-                        <div class="token-amount">${balance.amount.toFixed(6)}</div>
+                        <div class="token-amount">${parseFloat(balance.amount).toFixed(6)}</div>
                     </div>
                 `;
             });
             
             tokenBalancesDiv.innerHTML = html;
         } else {
-            tokenBalancesDiv.innerHTML = `<p class="text-danger">Error: ${response.data.error}</p>`;
+            tokenBalancesDiv.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
         }
     } catch (error) {
         tokenBalancesDiv.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
@@ -199,13 +245,14 @@ async function fetchPrices() {
     tokenPricesDiv.innerHTML = '<p>Loading prices...</p>';
     
     try {
-        const response = await axios.get(`${API_URL}/get_prices`);
+        const response = await fetch(`${API_URL}/get_prices`);
+        const data = await response.json();
         
-        if (response.data.success) {
-            const prices = response.data.data;
+        if (data.success) {
+            const prices = data.data;
             
             if (prices.length === 0) {
-                tokenPricesDiv.innerHTML = '<p>No token prices found</p>';
+                tokenPricesDiv.innerHTML = '<p>No price data available</p>';
                 return;
             }
             
@@ -215,66 +262,62 @@ async function fetchPrices() {
                 html += `
                     <div class="token-price">
                         <div class="token-symbol">${price.symbol}</div>
-                        <div class="token-amount">$${price.price_usd.toFixed(4)}</div>
+                        <div class="token-amount">$${parseFloat(price.price_usd).toFixed(6)}</div>
                     </div>
                 `;
             });
             
             tokenPricesDiv.innerHTML = html;
         } else {
-            tokenPricesDiv.innerHTML = `<p class="text-danger">Error: ${response.data.error}</p>`;
+            tokenPricesDiv.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
         }
     } catch (error) {
         tokenPricesDiv.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
     }
 }
 
-// Fetch limit orders
+// Fetch active orders
 async function fetchOrders() {
     if (!localStorage.getItem('walletPubkey')) {
-        ordersTableBody.innerHTML = '<tr><td colspan="9" class="text-center">Connect a wallet to view orders</td></tr>';
+        ordersTableBody.innerHTML = '<tr><td colspan="8" class="text-center">No wallet connected</td></tr>';
         return;
     }
     
     try {
-        const response = await axios.get(`${API_URL}/list_limit_orders`);
+        const response = await fetch(`${API_URL}/list_limit_orders`);
+        const data = await response.json();
         
-        if (response.data.success) {
-            const orders = response.data.data;
+        if (data.success) {
+            const orders = data.data;
             
             if (orders.length === 0) {
-                ordersTableBody.innerHTML = '<tr><td colspan="9" class="text-center">No orders found</td></tr>';
+                ordersTableBody.innerHTML = '<tr><td colspan="8" class="text-center">No active orders</td></tr>';
                 return;
             }
             
             // Render the orders
             let html = '';
             orders.forEach(order => {
-                // Get token symbols
                 const sourceSymbol = getTokenSymbol(order.source_token);
                 const targetSymbol = getTokenSymbol(order.target_token);
                 
-                // Format date
-                const createdDate = new Date(order.created_at).toLocaleString();
-                
-                // Determine status class
-                const statusClass = `status-${order.status.toLowerCase()}`;
-                
                 html += `
                     <tr>
-                        <td><span class="pubkey-truncate">${order.id.substring(0, 8)}...</span></td>
+                        <td>${order.id.slice(0, 8)}...</td>
                         <td>${order.order_type}</td>
                         <td>${sourceSymbol}</td>
                         <td>${targetSymbol}</td>
-                        <td>${order.amount.toFixed(6)}</td>
-                        <td>$${order.price_target.toFixed(4)}</td>
-                        <td><span class="${statusClass}">${order.status}</span></td>
-                        <td>${createdDate}</td>
+                        <td>${parseFloat(order.amount).toFixed(6)}</td>
+                        <td>$${parseFloat(order.price_target).toFixed(6)}</td>
+                        <td class="status-${order.status.toLowerCase()}">${order.status}</td>
                         <td>
-                            ${order.status === 'Active' ? `
-                                <button class="btn btn-sm btn-danger btn-action" 
-                                        onclick="cancelOrder('${order.id}')">Cancel</button>
-                            ` : ''}
+                            <button 
+                                class="btn btn-sm btn-danger" 
+                                onclick="cancelOrder('${order.id}')"
+                                ${order.status !== 'ACTIVE' ? 'disabled' : ''}
+                            >
+                                Cancel
+                            </button>
                         </td>
                     </tr>
                 `;
@@ -282,10 +325,10 @@ async function fetchOrders() {
             
             ordersTableBody.innerHTML = html;
         } else {
-            ordersTableBody.innerHTML = `<tr><td colspan="9" class="text-danger">Error: ${response.data.error}</td></tr>`;
+            ordersTableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error: ${data.error}</td></tr>`;
         }
     } catch (error) {
-        ordersTableBody.innerHTML = `<tr><td colspan="9" class="text-danger">Error: ${error.message}</td></tr>`;
+        ordersTableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error: ${error.message}</td></tr>`;
     }
 }
 
@@ -296,38 +339,60 @@ async function createLimitOrder(formData) {
         return;
     }
     
-    showLoading('Creating limit order...');
+    const orderType = document.getElementById('order-type').value;
+    const sourceToken = document.getElementById('source-token').value;
+    const targetToken = document.getElementById('target-token').value;
+    const amount = parseFloat(document.getElementById('amount').value);
+    const priceTarget = parseFloat(document.getElementById('price-target').value);
     
-    // Prepare the request data
-    const requestData = {
-        source_token: formData.get('source_token'),
-        target_token: formData.get('target_token'),
-        amount: parseFloat(formData.get('amount')),
-        price_target: parseFloat(formData.get('price_target')),
-        order_type: formData.get('order_type'),
-        slippage: parseFloat(formData.get('slippage')),
-    };
-    
-    // Add expiry time if provided
-    const expiryTime = formData.get('expiry_time');
-    if (expiryTime) {
-        requestData.expiry_time = new Date(expiryTime).toISOString();
+    if (sourceToken === targetToken) {
+        showError('Source and target tokens cannot be the same');
+        return;
     }
     
+    if (amount <= 0) {
+        showError('Amount must be greater than zero');
+        return;
+    }
+    
+    if (priceTarget <= 0) {
+        showError('Price target must be greater than zero');
+        return;
+    }
+    
+    showLoading('Creating limit order...');
+    
     try {
-        const response = await axios.post(`${API_URL}/set_limit_order`, requestData);
+        const requestData = {
+            order_type: orderType,
+            source_token: sourceToken,
+            target_token: targetToken,
+            amount: amount,
+            price_target: priceTarget
+        };
         
-        if (response.data.success) {
-            // Show success message
-            alert('Limit order created successfully!');
+        const response = await fetch(`${API_URL}/set_limit_order`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Clear the form
+            document.getElementById('amount').value = '';
+            document.getElementById('price-target').value = '';
             
-            // Reset the form
-            limitOrderForm.reset();
-            
-            // Refresh orders list
+            // Refresh the orders list
             await fetchOrders();
+            
+            // Show success message
+            alert('Limit order created successfully');
         } else {
-            showError('Failed to create limit order: ' + response.data.error);
+            showError('Failed to create limit order: ' + data.error);
         }
     } catch (error) {
         showError('Error creating limit order: ' + error.message);
@@ -336,44 +401,52 @@ async function createLimitOrder(formData) {
     hideLoading();
 }
 
-// Cancel a limit order
+// Cancel an order
 async function cancelOrder(orderId) {
-    if (confirm('Are you sure you want to cancel this order?')) {
-        showLoading('Cancelling order...');
-        
-        try {
-            const response = await axios.post(`${API_URL}/cancel_limit_order`, {
-                order_id: orderId
-            });
-            
-            if (response.data.success) {
-                // Refresh orders list
-                await fetchOrders();
-            } else {
-                showError('Failed to cancel order: ' + response.data.error);
-            }
-        } catch (error) {
-            showError('Error cancelling order: ' + error.message);
-        }
-        
-        hideLoading();
+    if (!confirm('Are you sure you want to cancel this order?')) {
+        return;
     }
+    
+    showLoading('Cancelling order...');
+    
+    try {
+        const response = await fetch(`${API_URL}/cancel_limit_order`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ order_id: orderId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Refresh the orders list
+            await fetchOrders();
+        } else {
+            showError('Failed to cancel order: ' + data.error);
+        }
+    } catch (error) {
+        showError('Error cancelling order: ' + error.message);
+    }
+    
+    hideLoading();
 }
 
-// Helper: Show wallet connected UI
+// Update UI to show connected wallet
 function showWalletConnected(pubkey) {
-    walletPubkeyDisplay.textContent = `${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 8)}`;
     noWalletAlert.style.display = 'none';
     walletDetails.style.display = 'block';
+    walletPubkeyDisplay.textContent = pubkey;
 }
 
-// Helper: Populate token select dropdowns
+// Populate token selection dropdowns
 function populateTokenSelects() {
     // Clear existing options
     sourceTokenSelect.innerHTML = '';
     targetTokenSelect.innerHTML = '';
     
-    // Add options for each token
+    // Add token options
     knownTokens.forEach(token => {
         const sourceOption = document.createElement('option');
         sourceOption.value = token.mint;
@@ -386,91 +459,38 @@ function populateTokenSelects() {
         targetTokenSelect.appendChild(targetOption);
     });
     
-    // Set default values (if needed)
-    sourceTokenSelect.value = knownTokens[0].mint; // SOL
-    targetTokenSelect.value = knownTokens[1].mint; // USDC
+    // Set different default selections for source and target
+    if (sourceTokenSelect.options.length > 0) {
+        sourceTokenSelect.selectedIndex = 0;
+    }
     
-    // Add Stop Loss option to order type dropdown
-    const orderTypeSelect = document.getElementById('order-type');
-    if (orderTypeSelect) {
-        // Check if Stop Loss option already exists
-        let hasStopLoss = false;
-        for (let i = 0; i < orderTypeSelect.options.length; i++) {
-            if (orderTypeSelect.options[i].value === 'StopLoss') {
-                hasStopLoss = true;
-                break;
-            }
-        }
-        
-        // Add StopLoss option if it doesn't exist
-        if (!hasStopLoss) {
-            const stopLossOption = document.createElement('option');
-            stopLossOption.value = 'StopLoss';
-            stopLossOption.textContent = 'Stop Loss';
-            orderTypeSelect.appendChild(stopLossOption);
-        }
+    if (targetTokenSelect.options.length > 1) {
+        targetTokenSelect.selectedIndex = 1;
     }
 }
 
-// Helper: Get token symbol from mint address
+// Get token symbol from mint address
 function getTokenSymbol(mintAddress) {
     const token = knownTokens.find(t => t.mint === mintAddress);
-    return token ? token.symbol : mintAddress.substring(0, 6) + '...';
+    return token ? token.symbol : mintAddress.slice(0, 6) + '...';
 }
 
-// Helper: Show loading modal
+// Show loading modal
 function showLoading(message = 'Processing request...') {
     document.getElementById('loading-message').textContent = message;
     loadingModal.show();
 }
 
-// Helper: Hide loading modal
+// Hide loading modal
 function hideLoading() {
     loadingModal.hide();
 }
 
-// Helper: Show error message
+// Show error message
 function showError(message) {
     hideLoading();
     alert(message);
 }
 
-// Event Listeners
-document.addEventListener('DOMContentLoaded', initApp);
-generateWalletBtn.addEventListener('click', generateWallet);
-importWalletBtn.addEventListener('click', importWallet);
-refreshBalancesBtn.addEventListener('click', fetchBalances);
-refreshPricesBtn.addEventListener('click', fetchPrices);
-refreshOrdersBtn.addEventListener('click', fetchOrders);
-
-limitOrderForm.addEventListener('submit', function(event) {
-    event.preventDefault();
-    const formData = new FormData(limitOrderForm);
-    createLimitOrder(formData);
-});
-
-// Event listener for order type change
-document.getElementById('order-type').addEventListener('change', function(event) {
-    const orderType = event.target.value;
-    const priceTargetLabel = document.querySelector('label[for="price-target"]');
-    const priceTargetHelp = document.getElementById('price-target-help');
-    
-    // Create help text element if it doesn't exist
-    if (!priceTargetHelp) {
-        const helpElement = document.createElement('div');
-        helpElement.id = 'price-target-help';
-        helpElement.className = 'form-text';
-        document.querySelector('label[for="price-target"]').parentNode.appendChild(helpElement);
-    }
-    
-    if (orderType === 'Buy') {
-        priceTargetLabel.textContent = 'Price Target (USD) - Buy when price drops to this value';
-        document.getElementById('price-target-help').textContent = 'Order will execute when the price drops to or below this value';
-    } else if (orderType === 'Sell') {
-        priceTargetLabel.textContent = 'Price Target (USD) - Sell when price rises to this value';
-        document.getElementById('price-target-help').textContent = 'Order will execute when the price rises to or above this value';
-    } else if (orderType === 'StopLoss') {
-        priceTargetLabel.textContent = 'Stop Loss Price (USD) - Sell when price drops to this value';
-        document.getElementById('price-target-help').textContent = 'Order will execute when the price drops to or below this value to prevent further losses';
-    }
-}); 
+// Expose the cancel order function to the global scope
+window.cancelOrder = cancelOrder; 
